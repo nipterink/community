@@ -15,6 +15,7 @@ load("secret.star", "secret")
 load("time.star", "time")
 
 ASSETS_URL = "https://api.opensea.io/api/v1/assets?format=json&owner={}"
+COLLECTION_URL = "https://api.opensea.io/api/v1/collection/{}/"
 
 def main(config):
     api_key = secret.decrypt("AV6+xWcEAJh6U3VcNQPxFbXfOyADTC0TQJxUEtd9xUoWMJNEvLLSsLgvXxnpECEEVCuYVK0fQLUDot4yz5PPs8jIuCXlmfFs0BrSjfPSs0eS8RYgM6ZQfoMSo6Oo3Vs6RyuVW7U2P5jS5VhdyqipdJ1bQHcyoRT67JiARa6TuuaWzOmXHrU=") or config.get("opensea-api-key") or ""
@@ -22,6 +23,7 @@ def main(config):
     nfts = fetch_opensea_assets(public_address, api_key)
     nft = nfts[random(len(nfts))]
     (nft_name, nft_thumbnail) = fetch_nft_thumbnail(nft)
+    collection_stats = fetch_collection_stats(nft)
 
     return render.Root(
         child = render.Box(
@@ -34,12 +36,14 @@ def main(config):
                         child = render.Text(nft_name),
                     ),
                     render.Row(
+                        cross_align = "center",
                         children = [
                             render.Image(
                                 src = nft_thumbnail,
                                 height = 24,
                                 width = 24,
                             ),
+                            render.Text(" Ξ%s" % collection_stats["floor_price"]),
                         ],
                     ),
                 ],
@@ -78,6 +82,23 @@ def fetch_nft_thumbnail(nft):
             fail("Failed to fetch thumbnail with status", thumbnail_resp.status_code)
         cache.set("thumbnail=%s" % thumbnail_url, base64.encode(thumbnail_resp.body()), ttl_seconds = 3600)
         return (nft_name, thumbnail_resp.body())
+
+def fetch_collection_stats(nft):
+    collection_slug = nft["collection"]["slug"]
+    cached_collection_stats = cache.get("collection=%s" % collection_slug)
+    if cached_collection_stats != None:
+        print("Hit! Using cached collection stats for", collection_slug)
+        return json.decode(cached_collection_stats)
+    else:
+        collection_url = COLLECTION_URL.format(collection_slug)
+        print("Miss! Fetching OpenSea stats for", collection_slug)
+        collection_resp = http.get(collection_url)
+        if (collection_resp.status_code != 200):
+            fail("OpenSea request failed with status", collection_resp.status_code)
+
+        collection_stats = collection_resp.json()["collection"]["stats"]
+        cache.set("collection=%s" % collection_slug, json.encode(collection_stats), ttl_seconds = 3600)
+        return collection_stats
 
 def random(max):
     """Return a pseudo-random number in [0, max)"""
